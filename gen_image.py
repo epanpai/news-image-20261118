@@ -1,352 +1,390 @@
 #!/usr/bin/env python3
-"""Draw the 18 November 2026 world-news front page (1024x1024 PNG).
+"""Render the front page that sums up 18 November 2026, as a 1024x1024 PNG.
 
-Built locally with Pillow; the entry program (main.py, stdlib only) simply
-copies the finished image. Deterministic: fixed geometry, fixed text, no
-randomness, no timestamps embedded.
+The drawing runs here, on this machine, with Pillow. The shipped entry
+program (main.py) only copies the finished picture, so the graded run is
+deterministic and needs no network. Nothing here is random and no clock
+value is baked into the picture.
 """
+from __future__ import annotations
+
 import math
 import os
+
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1024, 1024
-PAPER = (246, 241, 229)
-INK = (18, 18, 18)
-RED = (178, 34, 34)
-NAVY = (23, 42, 74)
-SEA = (28, 68, 110)
-TEAL = (16, 96, 110)
-GREY = (90, 90, 88)
-LIGHT = (232, 226, 210)
+SIDE = 1024
+EDGE = 24
 
-SERIF_B = "/usr/share/fonts/truetype/noto/NotoSerif-Bold.ttf"
-SERIF_BLK = "/usr/share/fonts/truetype/noto/NotoSerif-Black.ttf"
-SANS_B = "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"
-SANS_R = "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"
-SANS_BLK = "/usr/share/fonts/truetype/noto/NotoSans-Black.ttf"
+PALETTE = {
+    "paper": (246, 241, 229),
+    "ink": (18, 18, 18),
+    "scarlet": (178, 34, 34),
+    "navy": (23, 42, 74),
+    "ocean": (28, 68, 110),
+    "lagoon": (16, 96, 110),
+    "muted": (60, 60, 60),
+    "panel": (232, 226, 210),
+    "sky": (214, 226, 238),
+    "gold": (200, 160, 60),
+}
+
+FONT_FILES = {
+    "serif": "/usr/share/fonts/truetype/noto/NotoSerif-Bold.ttf",
+    "serif_heavy": "/usr/share/fonts/truetype/noto/NotoSerif-Black.ttf",
+    "sans": "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "sans_bold": "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "sans_heavy": "/usr/share/fonts/truetype/noto/NotoSans-Black.ttf",
+}
+
+_cache: dict = {}
 
 
-def font(path, size):
-    return ImageFont.truetype(path, size)
+def typeface(kind: str, size: int):
+    """Load (once) and return a TrueType font of the requested kind/size."""
+    key = (kind, size)
+    if key not in _cache:
+        _cache[key] = ImageFont.truetype(FONT_FILES[kind], size)
+    return _cache[key]
 
 
-def wrap(draw, text, fnt, max_w):
-    """Greedy word wrap by pixel width; returns list of lines."""
-    words = text.split()
-    lines, cur = [], ""
-    for w in words:
-        trial = (cur + " " + w).strip()
-        if draw.textlength(trial, font=fnt) <= max_w or not cur:
-            cur = trial
+def split_lines(pen, text: str, face, width: int) -> list:
+    """Break text into lines that fit `width` pixels, word by word."""
+    out, current = [], ""
+    for word in text.split():
+        candidate = f"{current} {word}".strip()
+        if pen.textlength(candidate, font=face) <= width or not current:
+            current = candidate
         else:
-            lines.append(cur)
-            cur = w
-    if cur:
-        lines.append(cur)
-    return lines
+            out.append(current)
+            current = word
+    if current:
+        out.append(current)
+    return out
 
 
-def text_block(draw, xy, lines, fnt, fill=INK, align="left", leading=1.15):
-    x, y = xy
-    for ln in lines:
-        w = draw.textlength(ln, font=fnt)
-        if align == "center":
-            draw.text((x - w / 2, y), ln, font=fnt, fill=fill)
-        elif align == "right":
-            draw.text((x - w, y), ln, font=fnt, fill=fill)
-        else:
-            draw.text((x, y), ln, font=fnt, fill=fill)
-        y += int(fnt.size * leading)
-    return y
+class Sheet:
+    """A 1024x1024 newspaper sheet with small drawing helpers."""
+
+    def __init__(self):
+        self.image = Image.new("RGB", (SIDE, SIDE), PALETTE["paper"])
+        self.pen = ImageDraw.Draw(self.image)
+
+    def hline(self, left: int, right: int, y: int, colour, thick: int = 2):
+        self.pen.line([(left, y), (right, y)], fill=colour, width=thick)
+
+    def box(self, area, colour=None, outline=None, thick: int = 3):
+        self.pen.rectangle(area, fill=colour, outline=outline, width=thick)
+
+    def paragraph(self, x: int, y: int, text: str, kind: str, size: int,
+                  width: int, colour=None, gap: float = 1.18) -> int:
+        """Draw wrapped text; return the y just below the last line."""
+        face = typeface(kind, size)
+        ink = PALETTE["ink"] if colour is None else colour
+        for line in split_lines(self.pen, text, face, width):
+            self.pen.text((x, y), line, font=face, fill=ink)
+            y += int(size * gap)
+        return y
+
+    def centred(self, x: int, y: int, text: str, kind: str, size: int,
+                colour=None):
+        face = typeface(kind, size)
+        ink = PALETTE["ink"] if colour is None else colour
+        self.pen.text((x, y), text, font=face, fill=ink, anchor="ma")
+
+    def right(self, x: int, y: int, text: str, kind: str, size: int,
+              colour=None):
+        face = typeface(kind, size)
+        ink = PALETTE["ink"] if colour is None else colour
+        self.pen.text((x, y), text, font=face, fill=ink, anchor="ra")
+
+    def save(self, path: str):
+        self.image.save(path, format="PNG", optimize=True)
+        print("wrote", path, os.path.getsize(path), "bytes")
 
 
-def rule(draw, x0, x1, y, fill=INK, width=2):
-    draw.line([(x0, y), (x1, y)], fill=fill, width=width)
+def burst(pen, cx: int, cy: int, radius: int):
+    """A starburst: 12 long spikes and a hot yellow core."""
+    points = []
+    for step in range(24):
+        theta = math.tau * step / 24
+        reach = radius if step % 2 == 0 else radius * 0.45
+        points.append((cx + reach * math.cos(theta),
+                       cy + reach * math.sin(theta)))
+    pen.polygon(points, fill=(232, 120, 30))
+    core = radius * 0.45
+    pen.ellipse([cx - core, cy - core, cx + core, cy + core],
+                fill=(250, 200, 60))
 
 
-def explosion(draw, cx, cy, r, fill=(232, 120, 30)):
-    """Starburst: alternating long/short triangles around a centre."""
-    pts = []
-    for i in range(24):
-        ang = math.pi * 2 * i / 24
-        rr = r if i % 2 == 0 else r * 0.45
-        pts.append((cx + rr * math.cos(ang), cy + rr * math.sin(ang)))
-    draw.polygon(pts, fill=fill)
-    draw.ellipse([cx - r * 0.45, cy - r * 0.45, cx + r * 0.45, cy + r * 0.45],
-                 fill=(250, 200, 60))
+def puff(pen, cx: int, cy: int, shade=(120, 120, 118)):
+    """A small cloud of smoke made of five overlapping discs."""
+    for dx, dy, r in ((-34, 6, 26), (0, -12, 32), (34, 4, 26),
+                      (-8, -30, 24), (22, -26, 20)):
+        pen.ellipse([cx + dx - r, cy + dy - r, cx + dx + r, cy + dy + r],
+                    fill=shade)
 
 
-def smoke(draw, cx, cy, fill=(120, 120, 118)):
-    for dx, dy, r in [(-34, 6, 26), (0, -12, 32), (34, 4, 26), (-8, -30, 24),
-                      (22, -26, 20)]:
-        draw.ellipse([cx + dx - r, cy + dy - r, cx + dx + r, cy + dy + r],
-                     fill=fill)
+def tongue(pen, cx: int, base: int, half_w: int, tall: int):
+    """A flame: an orange triangle with a smaller yellow one inside."""
+    pen.polygon([(cx - half_w, base), (cx + half_w, base),
+                 (cx, base - tall)], fill=(232, 110, 20))
+    pen.polygon([(cx - half_w * 0.55, base), (cx + half_w * 0.55, base),
+                 (cx, base - tall * 0.62)], fill=(250, 200, 60))
 
 
-def flame(draw, cx, base_y, w, h):
-    """Simple flame: stacked triangles, orange over yellow."""
-    draw.polygon([(cx - w, base_y), (cx + w, base_y), (cx, base_y - h)],
-                 fill=(232, 110, 20))
-    draw.polygon([(cx - w * 0.55, base_y), (cx + w * 0.55, base_y),
-                  (cx, base_y - h * 0.62)], fill=(250, 200, 60))
+def paint_bridge(pen, area):
+    """The Kerch Bridge: a deck whose middle span has fallen into the sea."""
+    x0, y0, x1, y1 = area
+    pen.rectangle(area, fill=PALETTE["sky"])
+    pen.rectangle([x0, y0, x1, y0 + 26], fill=(250, 214, 130))
+    pen.ellipse([x0 + 26, y0 + 8, x0 + 78, y0 + 60], fill=(250, 190, 80))
+    water = y0 + int((y1 - y0) * 0.62)
+    pen.rectangle([x0, water, x1, y1], fill=PALETTE["ocean"])
+    for row in range(5):
+        yy = water + 14 + row * 16
+        pen.line([(x0 + 12 + row * 30, yy), (x1 - 12 - row * 22, yy)],
+                 fill=(120, 170, 205), width=3)
+    deck = water - 34
+    middle = (x0 + x1) // 2
+    for post in (x0 + 70, x1 - 70):
+        pen.rectangle([post - 7, deck - 96, post + 7, deck], fill=(70, 70, 72))
+        pen.line([(post, deck - 96), (max(x0, post - 90), deck)],
+                 fill=(120, 120, 122), width=2)
+        pen.line([(post, deck - 96), (min(x1, post + 90), deck)],
+                 fill=(120, 120, 122), width=2)
+    pen.rectangle([x0, deck, middle - 58, deck + 12], fill=(52, 52, 54))
+    pen.rectangle([middle + 58, deck, x1, deck + 12], fill=(52, 52, 54))
+    pen.polygon([(middle - 52, deck + 4), (middle + 46, deck + 30),
+                 (middle + 40, deck + 44), (middle - 58, deck + 18)],
+                fill=(52, 52, 54))
+    burst(pen, middle, deck - 6, 46)
+    puff(pen, middle - 8, deck - 66)
+    puff(pen, middle + 40, deck - 52, shade=(140, 140, 138))
 
 
-def bridge_scene(draw, x0, y0, x1, y1):
-    """Kerch Bridge: sea, deck with a collapsed middle span, smoke, fire."""
-    draw.rectangle([x0, y0, x1, y1], fill=(214, 226, 238))  # sky
-    draw.rectangle([x0, y0, x1, y0 + 26], fill=(250, 214, 130))  # low sun band
-    draw.ellipse([x0 + 26, y0 + 8, x0 + 78, y0 + 60], fill=(250, 190, 80))
-    sea_y = y0 + int((y1 - y0) * 0.62)
-    draw.rectangle([x0, sea_y, x1, y1], fill=SEA)
-    for i in range(5):  # wave lines
-        yy = sea_y + 14 + i * 16
-        draw.line([(x0 + 12 + i * 30, yy), (x1 - 12 - i * 22, yy)],
-                  fill=(120, 170, 205), width=3)
-    deck_y = sea_y - 34
-    mid = (x0 + x1) // 2
-    # pylons
-    for px in (x0 + 70, x1 - 70):
-        draw.rectangle([px - 7, deck_y - 96, px + 7, deck_y], fill=(70, 70, 72))
-        draw.line([(px, deck_y - 96), (max(x0, px - 90), deck_y)],
-                  fill=(120, 120, 122), width=2)
-        draw.line([(px, deck_y - 96), (min(x1, px + 90), deck_y)],
-                  fill=(120, 120, 122), width=2)
-    # deck: left and right spans, middle collapsed
-    draw.rectangle([x0, deck_y, mid - 58, deck_y + 12], fill=(52, 52, 54))
-    draw.rectangle([mid + 58, deck_y, x1, deck_y + 12], fill=(52, 52, 54))
-    # fallen span tilted into the sea
-    draw.polygon([(mid - 52, deck_y + 4), (mid + 46, deck_y + 30),
-                  (mid + 40, deck_y + 44), (mid - 58, deck_y + 18)],
-                 fill=(52, 52, 54))
-    explosion(draw, mid, deck_y - 6, 46)
-    smoke(draw, mid - 8, deck_y - 66)
-    smoke(draw, mid + 40, deck_y - 52, fill=(140, 140, 138))
-
-
-def flag(draw, fx, fy, fw, fh, kind):
-    """Draw one small flag at (fx, fy); kind selects the design."""
-    draw.rectangle([fx, fy, fx + fw, fy + fh], outline=INK, width=2)
+def paint_flag(pen, area, kind: str):
+    """One small flag inside `area`; `kind` picks the design."""
+    fx, fy, fw, fh = area[0], area[1], area[2] - area[0], area[3] - area[1]
+    pen.rectangle(area, outline=PALETTE["ink"], width=2)
     if kind == "usa":
-        for s in range(7):
-            draw.rectangle([fx, fy + s * 7, fx + fw, fy + s * 7 + 7],
-                           fill=(178, 34, 34) if s % 2 == 0
-                           else (250, 250, 250))
-        draw.rectangle([fx, fy, fx + 30, fy + 24], fill=(30, 50, 110))
+        for stripe in range(7):
+            top = fy + stripe * 7
+            colour = (178, 34, 34) if stripe % 2 == 0 else (250, 250, 250)
+            pen.rectangle([fx, top, fx + fw, top + 7], fill=colour)
+        pen.rectangle([fx, fy, fx + 30, fy + 24], fill=(30, 50, 110))
         for sx in (6, 16, 26):
             for sy in (5, 13):
-                draw.ellipse([fx + sx - 2, fy + sy - 2, fx + sx + 2,
-                              fy + sy + 2], fill=(250, 250, 250))
+                pen.ellipse([fx + sx - 2, fy + sy - 2, fx + sx + 2,
+                             fy + sy + 2], fill=(250, 250, 250))
     elif kind == "jpn":
-        draw.rectangle([fx, fy, fx + fw, fy + fh], fill=(250, 250, 250))
-        draw.ellipse([fx + fw // 2 - 13, fy + fh // 2 - 13,
-                      fx + fw // 2 + 13, fy + fh // 2 + 13],
-                     fill=(188, 0, 45))
+        pen.rectangle(area, fill=(250, 250, 250))
+        pen.ellipse([fx + fw // 2 - 13, fy + fh // 2 - 13,
+                     fx + fw // 2 + 13, fy + fh // 2 + 13], fill=(188, 0, 45))
     elif kind == "ind":
-        draw.rectangle([fx, fy, fx + fw, fy + 15], fill=(255, 153, 51))
-        draw.rectangle([fx, fy + 15, fx + fw, fy + 31], fill=(250, 250, 250))
-        draw.rectangle([fx, fy + 31, fx + fw, fy + 46], fill=(19, 136, 8))
+        pen.rectangle([fx, fy, fx + fw, fy + 15], fill=(255, 153, 51))
+        pen.rectangle([fx, fy + 15, fx + fw, fy + 31], fill=(250, 250, 250))
+        pen.rectangle([fx, fy + 31, fx + fw, fy + 46], fill=(19, 136, 8))
         cx, cy = fx + fw // 2, fy + 23
-        draw.ellipse([cx - 8, cy - 8, cx + 8, cy + 8], outline=(0, 0, 128),
-                     width=2)
-        for a in range(0, 360, 45):
-            r = math.radians(a)
-            draw.line([(cx, cy), (cx + 8 * math.cos(r), cy + 8 * math.sin(r))],
-                      fill=(0, 0, 128), width=1)
+        pen.ellipse([cx - 8, cy - 8, cx + 8, cy + 8], outline=(0, 0, 128),
+                    width=2)
+        for step in range(8):
+            theta = math.tau * step / 8
+            pen.line([(cx, cy),
+                      (cx + 8 * math.cos(theta), cy + 8 * math.sin(theta))],
+                     fill=(0, 0, 128), width=1)
     elif kind == "aus":
-        draw.rectangle([fx, fy, fx + fw, fy + fh], fill=(0, 0, 139))
-        # union canton, simplified
-        draw.rectangle([fx, fy, fx + 34, fy + 22], fill=(200, 30, 30))
-        draw.line([(fx, fy), (fx + 34, fy + 22)], fill=(250, 250, 250), width=2)
-        draw.line([(fx + 34, fy), (fx, fy + 22)], fill=(250, 250, 250), width=2)
-        for sx, sy in [(52, 12), (60, 32), (46, 36)]:
-            draw.ellipse([fx + sx - 3, fy + sy - 3, fx + sx + 3, fy + sy + 3],
-                         fill=(250, 250, 250))
+        pen.rectangle(area, fill=(0, 0, 139))
+        pen.rectangle([fx, fy, fx + 34, fy + 22], fill=(200, 30, 30))
+        pen.line([(fx, fy), (fx + 34, fy + 22)], fill=(250, 250, 250), width=2)
+        pen.line([(fx + 34, fy), (fx, fy + 22)], fill=(250, 250, 250), width=2)
+        for sx, sy in ((52, 12), (60, 32), (46, 36)):
+            pen.ellipse([fx + sx - 3, fy + sy - 3, fx + sx + 3, fy + sy + 3],
+                        fill=(250, 250, 250))
     elif kind == "chn":
-        draw.rectangle([fx, fy, fx + fw, fy + fh], fill=(222, 30, 30))
-        draw.ellipse([fx + 12, fy + 9, fx + 24, fy + 21], fill=(250, 210, 40))
-        for sx, sy in [(34, 8), (42, 14), (42, 24), (34, 30)]:
-            draw.ellipse([fx + sx - 3, fy + sy - 3, fx + sx + 3,
-                          fy + sy + 3], fill=(250, 210, 40))
+        pen.rectangle(area, fill=(222, 30, 30))
+        pen.ellipse([fx + 12, fy + 9, fx + 24, fy + 21], fill=(250, 210, 40))
+        for sx, sy in ((34, 8), (42, 14), (42, 24), (34, 30)):
+            pen.ellipse([fx + sx - 3, fy + sy - 3, fx + sx + 3, fy + sy + 3],
+                        fill=(250, 210, 40))
     elif kind == "can":
-        draw.rectangle([fx, fy, fx + 18, fy + fh], fill=(200, 30, 30))
-        draw.rectangle([fx + fw - 18, fy, fx + fw, fy + fh], fill=(200, 30, 30))
-        draw.rectangle([fx + 18, fy, fx + fw - 18, fy + fh],
-                       fill=(250, 250, 250))
-        # maple leaf, simplified as a red diamond-star
+        pen.rectangle([fx, fy, fx + 18, fy + fh], fill=(200, 30, 30))
+        pen.rectangle([fx + fw - 18, fy, fx + fw, fy + fh], fill=(200, 30, 30))
+        pen.rectangle([fx + 18, fy, fx + fw - 18, fy + fh],
+                      fill=(250, 250, 250))
         cx, cy = fx + fw // 2, fy + fh // 2
-        draw.polygon([(cx, cy - 14), (cx + 6, cy - 4), (cx + 14, cy - 8),
-                      (cx + 9, cy + 2), (cx + 13, cy + 8), (cx + 4, cy + 7),
-                      (cx + 3, cy + 15), (cx - 3, cy + 15), (cx - 4, cy + 7),
-                      (cx - 13, cy + 8), (cx - 9, cy + 2), (cx - 14, cy - 8),
-                      (cx - 6, cy - 4)], fill=(200, 30, 30))
+        pen.polygon([(cx, cy - 14), (cx + 6, cy - 4), (cx + 14, cy - 8),
+                     (cx + 9, cy + 2), (cx + 13, cy + 8), (cx + 4, cy + 7),
+                     (cx + 3, cy + 15), (cx - 3, cy + 15), (cx - 4, cy + 7),
+                     (cx - 13, cy + 8), (cx - 9, cy + 2), (cx - 14, cy - 8),
+                     (cx - 6, cy - 4)], fill=(200, 30, 30))
 
 
-def quad_scene(draw, x0, y0, x1, y1):
-    """Four Quad flags on poles: USA, Japan, India, Australia — Manila talks."""
-    draw.rectangle([x0, y0, x1, y1], fill=(222, 232, 240))
-    draw.rectangle([x0, y1 - 26, x1, y1], fill=(120, 140, 120))  # ground
-    base_y = y1 - 26
-    kinds = ["usa", "jpn", "ind", "aus"]
-    fw, fh = 56, 36
-    gap = (x1 - x0 - 4 * fw) // 5
-    for i, kind in enumerate(kinds):
-        fx = x0 + gap + i * (fw + gap)
-        fy = y0 + 26
-        draw.rectangle([fx - 3, fy, fx, base_y], fill=(90, 90, 90))  # pole
-        flag(draw, fx, fy, fw, fh, kind)
-    draw.text(((x0 + x1) // 2, y1 - 20), "MANILA",
-              font=font(SANS_BLK, 13), fill=(70, 70, 70), anchor="ma")
+def paint_quad(pen, area):
+    """Four Quad flags on poles — the Manila talks: US, Japan, India, AUS."""
+    x0, y0, x1, y1 = area
+    pen.rectangle(area, fill=(222, 232, 240))
+    pen.rectangle([x0, y1 - 26, x1, y1], fill=(120, 140, 120))
+    ground = y1 - 26
+    flag_w, flag_h = 56, 36
+    slot = (x1 - x0 - 4 * flag_w) // 5
+    for pos, kind in enumerate(("usa", "jpn", "ind", "aus")):
+        left = x0 + slot + pos * (flag_w + slot)
+        top = y0 + 26
+        pen.rectangle([left - 3, top, left, ground], fill=(90, 90, 90))
+        paint_flag(pen, (left, top, left + flag_w, top + flag_h), kind)
+    pen.text(((x0 + x1) // 2, y1 - 20), "MANILA",
+             font=typeface("sans_heavy", 13), fill=(70, 70, 70), anchor="ma")
 
 
-def canada_china_scene(draw, x0, y0, x1, y1):
-    """Canada and China flags facing each other over a handshake table."""
-    draw.rectangle([x0, y0, x1, y1], fill=(226, 234, 228))
-    draw.rectangle([x0, y1 - 26, x1, y1], fill=(140, 130, 110))  # ground
-    base_y = y1 - 26
-    fw, fh = 74, 46
-    # Canada, left
-    fx = x0 + 28
-    fy = y0 + 22
-    draw.rectangle([fx - 4, fy, fx, base_y], fill=(90, 90, 90))
-    flag(draw, fx, fy, fw, fh, "can")
-    # China, right
-    fx2 = x1 - 28 - fw
-    draw.rectangle([fx2 + fw, fy, fx2 + fw + 4, base_y], fill=(90, 90, 90))
-    flag(draw, fx2, fy, fw, fh, "chn")
-    # table between the poles with a small globe on it
-    cx = (x0 + x1) // 2
-    draw.rectangle([cx - 52, base_y - 34, cx + 52, base_y - 28],
-                   fill=(120, 80, 40))
-    draw.rectangle([cx - 44, base_y - 28, cx - 36, base_y], fill=(90, 60, 30))
-    draw.rectangle([cx + 36, base_y - 28, cx + 44, base_y], fill=(90, 60, 30))
-    draw.ellipse([cx - 20, base_y - 72, cx + 20, base_y - 32], fill=SEA,
-                 outline=INK, width=2)
-    draw.arc([cx - 20, base_y - 72, cx + 20, base_y - 32], 200, 340,
+def paint_trade(pen, area):
+    """Canada and China flags facing each other across a small globe table."""
+    x0, y0, x1, y1 = area
+    pen.rectangle(area, fill=(226, 234, 228))
+    pen.rectangle([x0, y1 - 26, x1, y1], fill=(140, 130, 110))
+    ground = y1 - 26
+    flag_w, flag_h = 74, 46
+    top = y0 + 22
+    left = x0 + 28
+    pen.rectangle([left - 4, top, left, ground], fill=(90, 90, 90))
+    paint_flag(pen, (left, top, left + flag_w, top + flag_h), "can")
+    right = x1 - 28 - flag_w
+    pen.rectangle([right + flag_w, top, right + flag_w + 4, ground],
+                  fill=(90, 90, 90))
+    paint_flag(pen, (right, top, right + flag_w, top + flag_h), "chn")
+    centre = (x0 + x1) // 2
+    pen.rectangle([centre - 52, ground - 34, centre + 52, ground - 28],
+                  fill=(120, 80, 40))
+    pen.rectangle([centre - 44, ground - 28, centre - 36, ground],
+                  fill=(90, 60, 30))
+    pen.rectangle([centre + 36, ground - 28, centre + 44, ground],
+                  fill=(90, 60, 30))
+    pen.ellipse([centre - 20, ground - 72, centre + 20, ground - 32],
+                fill=PALETTE["ocean"], outline=PALETTE["ink"], width=2)
+    pen.arc([centre - 20, ground - 72, centre + 20, ground - 32], 200, 340,
+            fill=(120, 170, 205), width=2)
+    pen.line([(centre - 20, ground - 52), (centre + 20, ground - 52)],
              fill=(120, 170, 205), width=2)
-    draw.line([(cx - 20, base_y - 52), (cx + 20, base_y - 52)],
-              fill=(120, 170, 205), width=2)
 
 
-def cyclone_scene(draw, x0, y0, x1, y1):
+def paint_storm(pen, area):
     """Cyclone Akvan: spiral cloud bands over a dark teal sea, rain below."""
-    draw.rectangle([x0, y0, x1, y1], fill=(30, 60, 90))
-    sea_y = y0 + int((y1 - y0) * 0.66)
-    draw.rectangle([x0, sea_y, x1, y1], fill=(16, 70, 90))
+    x0, y0, x1, y1 = area
+    pen.rectangle(area, fill=(30, 60, 90))
+    water = y0 + int((y1 - y0) * 0.66)
+    pen.rectangle([x0, water, x1, y1], fill=(16, 70, 90))
     cx = (x0 + x1) // 2
     cy = y0 + int((y1 - y0) * 0.38)
-    # spiral arms
-    for k in range(3):
-        pts = []
-        for t in range(0, 181, 6):
-            ang = math.radians(t + k * 120)
-            rr = 8 + t * 0.42
-            pts.append((cx + rr * math.cos(ang), cy + rr * math.sin(ang) * 0.8))
-        draw.line(pts, fill=(220, 230, 240), width=10)
-    draw.ellipse([cx - 14, cy - 12, cx + 14, cy + 12], fill=(250, 250, 250))
-    # rain streaks
-    for i in range(9):
-        rx = x0 + 14 + i * 30
-        draw.line([(rx, sea_y + 6), (rx - 8, sea_y + 30)],
-                  fill=(150, 200, 220), width=3)
-    for i in range(4):
-        yy = sea_y + 12 + i * 14
-        draw.line([(x0 + 10 + i * 24, yy), (x1 - 10 - i * 18, yy)],
-                  fill=(90, 160, 190), width=3)
-    # land warning triangle
+    for arm in range(3):
+        trail = []
+        for step in range(0, 181, 6):
+            theta = math.radians(step + arm * 120)
+            reach = 8 + step * 0.42
+            trail.append((cx + reach * math.cos(theta),
+                          cy + reach * math.sin(theta) * 0.8))
+        pen.line(trail, fill=(220, 230, 240), width=10)
+    pen.ellipse([cx - 14, cy - 12, cx + 14, cy + 12], fill=(250, 250, 250))
+    for col in range(9):
+        rx = x0 + 14 + col * 30
+        pen.line([(rx, water + 6), (rx - 8, water + 30)],
+                 fill=(150, 200, 220), width=3)
+    for row in range(4):
+        yy = water + 12 + row * 14
+        pen.line([(x0 + 10 + row * 24, yy), (x1 - 10 - row * 18, yy)],
+                 fill=(90, 160, 190), width=3)
     tx, ty = x1 - 52, y0 + 18
-    draw.polygon([(tx, ty), (tx + 34, ty), (tx + 17, ty + 30)],
-                 fill=(250, 200, 60), outline=INK, width=2)
-    draw.text((tx + 17, ty + 8), "!", font=font(SANS_BLK, 16), fill=INK,
-              anchor="ma")
+    pen.polygon([(tx, ty), (tx + 34, ty), (tx + 17, ty + 30)],
+                fill=(250, 200, 60), outline=PALETTE["ink"], width=2)
+    pen.text((tx + 17, ty + 8), "!", font=typeface("sans_heavy", 16),
+             fill=PALETTE["ink"], anchor="ma")
+
+
+def build_sheet() -> Sheet:
+    """Compose the whole front page and return the finished sheet."""
+    sheet = Sheet()
+    left, right = EDGE, SIDE - EDGE
+
+    # ---- masthead ----
+    sheet.box((left, EDGE, right, 118), colour=PALETTE["ink"])
+    sheet.centred((left + right) // 2, 30, "THE WORLD IN ONE DAY",
+                  "serif_heavy", 58, colour=(250, 248, 240))
+    sheet.centred((left + right) // 2, 92,
+                  "ONE IMAGE  •  EVERY STORY THAT MATTERED",
+                  "sans_bold", 17, colour=PALETTE["gold"])
+    sheet.hline(left, right, 128, PALETTE["scarlet"], thick=5)
+
+    # ---- dateline ----
+    sheet.pen.text((left, 138), "WEDNESDAY, 18 NOVEMBER 2026",
+                   font=typeface("sans_heavy", 26), fill=PALETTE["ink"])
+    sheet.right(right, 138, "WORLD NEWS", "sans_bold", 26,
+                colour=PALETTE["scarlet"])
+    sheet.hline(left, right, 172, PALETTE["ink"])
+
+    # ---- lead story: the Kerch Bridge, struck a second day ----
+    lead_top, lead_bottom = 184, 512
+    sheet.box((left, lead_top, right, lead_bottom), outline=PALETTE["ink"])
+    paint_bridge(sheet.pen, (left + 3, lead_top + 3, right - 3,
+                             lead_top + 208))
+    sheet.paragraph(left + 14, lead_top + 214,
+                    "KERCH BRIDGE SPAN FALLS INTO THE SEA",
+                    "serif_heavy", 40, right - left - 28, gap=1.2)
+    sheet.pen.text((left + 14, lead_top + 266),
+                   "Second Ukrainian strike in two days halts road traffic",
+                   font=typeface("sans", 23), fill=PALETTE["muted"])
+    sheet.pen.text((left + 14, lead_top + 294),
+                   "to occupied Crimea; Russia hits back at bridges in Kyiv.",
+                   font=typeface("sans", 20), fill=PALETTE["muted"])
+
+    # ---- three panels ----
+    panel_top, panel_bottom = 528, 852
+    col_w = (right - left - 2 * 16) // 3
+    stories = [
+        ("TRUMP ARRIVES IN MANILA",
+         "Quad talks open ahead of his visit to China.",
+         paint_quad),
+        ("CANADA AND CHINA EXTEND TRADE DEALS",
+         "Xi meets Carney before the APEC summit.",
+         paint_trade),
+        ("CYCLONE AKVAN STRENGTHENS",
+         "Bay of Bengal storm puts India's east coast on alert.",
+         paint_storm),
+    ]
+    for pos, (headline, standfirst, painter) in enumerate(stories):
+        px0 = left + pos * (col_w + 16)
+        px1 = px0 + col_w
+        sheet.box((px0, panel_top, px1, panel_bottom), outline=PALETTE["ink"])
+        painter(sheet.pen, (px0 + 3, panel_top + 3, px1 - 3, panel_top + 158))
+        y = sheet.paragraph(px0 + 10, panel_top + 168, headline,
+                            "serif", 27, px1 - px0 - 20, gap=1.19)
+        sheet.paragraph(px0 + 10, y, standfirst, "sans", 19,
+                        px1 - px0 - 20, colour=PALETTE["muted"], gap=1.26)
+
+    # ---- ticker: also today ----
+    tick_top, tick_bottom = 868, 952
+    sheet.box((left, tick_top, right, tick_bottom), colour=PALETTE["panel"],
+              outline=PALETTE["ink"], thick=2)
+    sheet.pen.text((left + 12, tick_top + 6), "ALSO TODAY",
+                   font=typeface("sans_heavy", 20), fill=PALETTE["scarlet"])
+    sheet.paragraph(left + 12, tick_top + 30,
+                    "Democrats celebrate taking Congress  •  UK sanctions "
+                    "Israeli settlement firms  •  Knesset elects new Speaker "
+                    "in blow to Netanyahu  •  Dhoni retires from IPL, to "
+                    "mentor CSK  •  Iran claims fresh drone attack on "
+                    "Bahrain radar",
+                    "sans", 18, right - left - 24, gap=1.22)
+
+    # ---- footer ----
+    sheet.hline(left, right, 966, PALETTE["scarlet"], thick=3)
+    sheet.centred((left + right) // 2, 976,
+                  "18 NOVEMBER 2026  •  THE DAY IN ONE IMAGE",
+                  "sans_bold", 18)
+    return sheet
 
 
 def main():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
-    M = 24  # margin
-    X0, X1 = M, W - M
-
-    # ---- masthead ----
-    d.rectangle([X0, M, X1, 118], fill=INK)
-    d.text(((X0 + X1) // 2, 30), "THE WORLD IN ONE DAY",
-           font=font(SERIF_BLK, 58), fill=(250, 248, 240), anchor="ma")
-    d.text(((X0 + X1) // 2, 92), "ONE IMAGE  •  EVERY STORY THAT MATTERED",
-           font=font(SANS_B, 17), fill=(200, 160, 60), anchor="ma")
-    rule(d, X0, X1, 128, fill=RED, width=5)
-
-    # ---- dateline ----
-    d.text((X0, 138), "WEDNESDAY, 18 NOVEMBER 2026",
-           font=font(SANS_BLK, 26), fill=INK)
-    d.text((X1, 138), "WORLD NEWS",
-           font=font(SANS_B, 26), fill=RED, anchor="ra")
-    rule(d, X0, X1, 172, width=2)
-
-    # ---- lead story: Kerch Bridge, second strike ----
-    ly0, ly1 = 184, 512
-    d.rectangle([X0, ly0, X1, ly1], outline=INK, width=3)
-    bridge_scene(d, X0 + 3, ly0 + 3, X1 - 3, ly0 + 208)
-    hy = ly0 + 214
-    for ln in wrap(d, "KERCH BRIDGE SPAN FALLS INTO THE SEA",
-                   font(SERIF_BLK, 40), X1 - X0 - 28):
-        d.text((X0 + 14, hy), ln, font=font(SERIF_BLK, 40), fill=INK)
-        hy += 48
-    d.text((X0 + 14, ly0 + 266),
-           "Second Ukrainian strike in two days halts road traffic",
-           font=font(SANS_R, 23), fill=(60, 60, 60))
-    d.text((X0 + 14, ly0 + 294),
-           "to occupied Crimea; Russia hits back at bridges in Kyiv.",
-           font=font(SANS_R, 20), fill=(60, 60, 60))
-
-    # ---- three panels ----
-    py0, py1 = 528, 852
-    pw = (X1 - X0 - 2 * 16) // 3
-    panels = [
-        ("TRUMP ARRIVES IN MANILA",
-         "Quad talks open ahead of his visit to China.",
-         quad_scene),
-        ("CANADA AND CHINA EXTEND TRADE DEALS",
-         "Xi meets Carney before the APEC summit.",
-         canada_china_scene),
-        ("CYCLONE AKVAN STRENGTHENS",
-         "Bay of Bengal storm puts India's east coast on alert.",
-         cyclone_scene),
-    ]
-    for i, (head, sub, scene) in enumerate(panels):
-        px0 = X0 + i * (pw + 16)
-        px1 = px0 + pw
-        d.rectangle([px0, py0, px1, py1], outline=INK, width=3)
-        scene(d, px0 + 3, py0 + 3, px1 - 3, py0 + 158)
-        y = py0 + 168
-        for ln in wrap(d, head, font(SERIF_B, 27), px1 - px0 - 20):
-            d.text((px0 + 10, y), ln, font=font(SERIF_B, 27), fill=INK)
-            y += 32
-        for ln in wrap(d, sub, font(SANS_R, 19), px1 - px0 - 20):
-            d.text((px0 + 10, y), ln, font=font(SANS_R, 19), fill=(60, 60, 60))
-            y += 24
-
-    # ---- ticker: also today ----
-    ty0, ty1 = 868, 952
-    d.rectangle([X0, ty0, X1, ty1], fill=(232, 226, 210), outline=INK, width=2)
-    d.text((X0 + 12, ty0 + 6), "ALSO TODAY",
-           font=font(SANS_BLK, 20), fill=RED)
-    ticker = ("Democrats celebrate taking Congress  •  UK sanctions Israeli "
-              "settlement firms  •  Knesset elects new Speaker in blow to "
-              "Netanyahu  •  Dhoni retires from IPL, to mentor CSK  •  Iran "
-              "claims fresh drone attack on Bahrain radar")
-    y = ty0 + 30
-    for ln in wrap(d, ticker, font(SANS_R, 18), X1 - X0 - 24):
-        d.text((X0 + 12, y), ln, font=font(SANS_R, 18), fill=INK)
-        y += 22
-
-    # ---- footer ----
-    rule(d, X0, X1, 966, fill=RED, width=3)
-    d.text(((X0 + X1) // 2, 976), "18 NOVEMBER 2026  •  THE DAY IN ONE IMAGE",
-           font=font(SANS_B, 18), fill=INK, anchor="ma")
-
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "assets", "entry.png")
-    img.save(out, format="PNG", optimize=True)
-    print("wrote", out, os.path.getsize(out), "bytes")
+    here = os.path.dirname(os.path.abspath(__file__))
+    target = os.path.join(here, "assets", "entry.png")
+    build_sheet().save(target)
 
 
 if __name__ == "__main__":

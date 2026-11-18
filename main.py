@@ -1,58 +1,61 @@
 #!/usr/bin/env python3
-"""Entry program for make.fun bounty news-image-20261118.
+"""Entry program for the make.fun bounty news-image-20261118.
 
-Writes the 18 November 2026 world-news front page to /output/entry.png.
-Standard library only, no network, fully deterministic: the same input
-bytes are copied on every run, so both runs write identical bytes.
+It places the finished front page for 18 November 2026 at
+/output/entry.png. Only the standard library is used, nothing is fetched
+from the network, and the bytes written are always the same: the program
+copies one fixed file, so two runs agree byte for byte.
 
 Run:  MAKEFUN_OUTPUT_DIR=out python3 main.py
 """
+from __future__ import annotations
+
 import hashlib
 import os
 import struct
 import sys
+from pathlib import Path
 
-IMAGE = "assets/entry.png"
-PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-MAX_BYTES = 1_048_576
-MAX_SIDE = 1024
+SOURCE_NAME = "assets/entry.png"
+BYTE_LIMIT = 1_048_576
+SIDE_LIMIT = 1024
+MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
-def png_size(data):
-    """Read width/height from the PNG IHDR chunk (bytes 16..24)."""
-    if len(data) < 24 or data[12:16] != b"IHDR":
+def fail(message: str) -> "SystemExit":
+    """Print an error and stop with a non-zero exit code."""
+    print(f"error: {message}", file=sys.stderr)
+    return SystemExit(1)
+
+
+def png_dimensions(blob: bytes) -> tuple | None:
+    """Return (width, height) from a PNG's IHDR chunk, else None."""
+    if len(blob) < 24 or blob[12:16] != b"IHDR":
         return None
-    w, h = struct.unpack(">II", data[16:24])
-    return w, h
+    return struct.unpack(">II", blob[16:24])
 
 
-def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    src = os.path.join(here, IMAGE)
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
-    os.makedirs(out_dir, exist_ok=True)
-    dst = os.path.join(out_dir, "entry.png")
+def run() -> int:
+    root = Path(__file__).resolve().parent
+    payload = (root / SOURCE_NAME).read_bytes()
 
-    with open(src, "rb") as f:
-        data = f.read()
-    if not data.startswith(PNG_MAGIC):
-        print("error: source image is not a PNG", file=sys.stderr)
-        return 1
-    if len(data) > MAX_BYTES:
-        print("error: image exceeds 1 MiB", file=sys.stderr)
-        return 1
-    size = png_size(data)
-    if size is None or size[0] > MAX_SIDE or size[1] > MAX_SIDE:
-        print("error: image is not a valid PNG within 1024x1024",
-              file=sys.stderr)
-        return 1
-    with open(dst, "wb") as f:
-        f.write(data)
+    if len(payload) > BYTE_LIMIT:
+        raise fail("image is larger than 1 MiB")
+    if not payload.startswith(MAGIC):
+        raise fail("source image is not a PNG")
+    dims = png_dimensions(payload)
+    if dims is None or dims[0] > SIDE_LIMIT or dims[1] > SIDE_LIMIT:
+        raise fail("image is not a PNG within 1024x1024")
 
-    digest = hashlib.sha256(data).hexdigest()
-    print(f"wrote {dst} ({len(data)} bytes, sha256 {digest})")
+    destination = Path(os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
+    destination.mkdir(parents=True, exist_ok=True)
+    target = destination / "entry.png"
+    target.write_bytes(payload)
+
+    digest = hashlib.sha256(payload).hexdigest()
+    print(f"wrote {target} ({len(payload)} bytes, sha256 {digest})")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run())

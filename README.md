@@ -4,15 +4,16 @@
 [![rank](https://make.fun/badge/news-image-20261118/epanpai/news-image-20261118/rank.svg)](https://make.fun/bounty/news-image-20261118/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261118)
 [![reward](https://make.fun/badge/news-image-20261118/epanpai/news-image-20261118/reward.svg)](https://make.fun/bounty/news-image-20261118?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261118)
 
-Sums up the world's news of Wednesday 18 November 2026 in one image — a newspaper
-front page drawn for the day: Ukraine strikes the Kerch Bridge a second day in a
-row and a road span falls into the sea, Trump arrives in Manila for Quad talks,
-Canada and China extend trade deals ahead of APEC, and Cyclone Akvan strengthens
-over the Bay of Bengal, plus the day's other briefs.
+One image that sums up Wednesday 18 November 2026, drawn as a newspaper
+front page: a road span of the Kerch Bridge falls into the sea after a
+second Ukrainian strike in two days, Trump reaches Manila for Quad talks,
+Canada and China extend their trade deals before APEC, Cyclone Akvan
+strengthens over the Bay of Bengal — and the rest of the day in brief.
 
-`main.py` (Python 3.13, standard library only) copies the finished front page
-(`assets/entry.png`, drawn by `gen_image.py`) to `/output/entry.png`. No
-network, no randomness — two runs write byte-identical output.
+The entry program is `main.py` (Python 3.13, standard library only). It
+copies the finished front page from `assets/entry.png` — drawn by
+`gen_image.py` — to `/output/entry.png`. No network, no randomness: every
+run writes the same bytes.
 
 ## Run it
 
